@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	// TODO: implement the upload here
 	const maxMemory = 10 << 20 // 10 MB
-	r.ParseMultipartForm(maxMemory)
+	if err := r.ParseMultipartForm(maxMemory); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse multi part form", err)
+		return
+	}
 
 	file, header, err := r.FormFile("thumbnail")
 	if err != nil {
@@ -63,16 +67,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	videoThumbnails[video.ID] = thumbnail{
-		data:      fileData,
-		mediaType: mediaType,
-	}
+	// videoThumbnails[video.ID] = thumbnail{
+	// 	data:      fileData,
+	// 	mediaType: mediaType,
+	// }
 
-	thumbURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
-	video.ThumbnailURL = &thumbURL
+	// thumbURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
+	// video.ThumbnailURL = &thumbURL
+	bas64Encoded := base64.StdEncoding.EncodeToString(fileData)
+	base64DataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, bas64Encoded)
+	video.ThumbnailURL = &base64DataURL
 
 	if err := cfg.db.UpdateVideo(video); err != nil {
-		delete(videoThumbnails, videoID) // !!!
+		// delete(videoThumbnails, videoID) // !!!
 		respondWithError(w, http.StatusInternalServerError, "Unable to update video", err)
 		return
 	}
