@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -104,7 +106,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		prefix = "other"
 	}
 
-	key := prefix + "/" + getAssetPath(mediaType)
+	key := path.Join(prefix, getAssetPath(mediaType))
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         aws.String(key),
@@ -127,14 +129,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 }
 
 func getVideoAspectRatio(filePath string) (string, error) {
-	// ffprobe -v error -print_format json -show_streams PATH_TO_VIDEO
-	type parameters struct {
-		Streams []struct {
-			CodecType string `json:"codec_type"`
-			Width     int    `json:"width,omitempty"`
-			Height    int    `json:"height,omitempty"`
-		}
-	}
 	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
 	buf := bytes.Buffer{}
 	cmd.Stdout = &buf
@@ -143,25 +137,30 @@ func getVideoAspectRatio(filePath string) (string, error) {
 		return "", err
 	}
 
+	var output struct {
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+			Width     int    `json:"width,omitempty"`
+			Height    int    `json:"height,omitempty"`
+		}
+	}
 	decoder := json.NewDecoder(&buf)
-	params := parameters{}
-
-	err := decoder.Decode(&params)
+	err := decoder.Decode(&output)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not parse ffprobe output: %v", err)
 	}
 
-	if len(params.Streams) < 1 {
+	if len(output.Streams) < 1 {
 		return "", errors.New("ffprobe did not output any streams")
 	}
 
 	// math
 	var width, height int
 	ok := false
-	for i, stream := range params.Streams {
+	for i, stream := range output.Streams {
 		if stream.CodecType == "video" {
-			width = params.Streams[i].Width
-			height = params.Streams[i].Height
+			width = output.Streams[i].Width
+			height = output.Streams[i].Height
 			ok = true
 			break
 		}
