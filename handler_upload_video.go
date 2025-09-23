@@ -96,6 +96,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	var prefix string
+	switch {
+	case aspectRatio == "16:9":
+		prefix = "landscape"
+	case aspectRatio == "9:16":
+		prefix = "portrait"
+	case aspectRatio == "other":
+		prefix = "other"
+	}
+
+	key := path.Join(prefix, getAssetPath(mediaType))
+
 	processedFilePath, err := processVideoForFastStart(tempFile.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error processing video file", err)
@@ -110,17 +122,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	defer os.Remove(processedFile.Name())
 	defer processedFile.Close()
 
-	var prefix string
-	switch {
-	case aspectRatio == "16:9":
-		prefix = "landscape"
-	case aspectRatio == "9:16":
-		prefix = "portrait"
-	case aspectRatio == "other":
-		prefix = "other"
-	}
-
-	key := path.Join(prefix, getAssetPath(mediaType))
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         aws.String(key),
@@ -214,15 +215,26 @@ func findGCD(a, b int) int {
 	return findGCD(b%a, a)
 }
 
-func processVideoForFastStart(filePath string) (string, error) {
+func processVideoForFastStart(inputFilePath string) (string, error) {
 	// input path should be temp file from upload video function
-	outPutPath := filePath + ".processing"
-	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outPutPath)
-	cmd.Stdout = &bytes.Buffer{}
-	cmd.Stderr = &bytes.Buffer{}
+	processedFilePath := fmt.Sprintf("%s.processing", inputFilePath)
+
+	cmd := exec.Command("ffmpeg", "-i", inputFilePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", processedFilePath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("ffmpeg failed: %s", cmd.Stderr.(*bytes.Buffer).String())
+		return "", fmt.Errorf("error processing video: %s, %v", stderr.String(), err)
 	}
-	return outPutPath, nil
+
+	fileInfo, err := os.Stat(processedFilePath)
+	if err != nil {
+		return "", fmt.Errorf("could not stat processed file: %v", err)
+	}
+
+	if fileInfo.Size() == 0 {
+		return "", fmt.Errorf("processed file is empty")
+	}
+
+	return processedFilePath, nil
 }
