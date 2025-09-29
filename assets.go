@@ -33,6 +33,10 @@ func (cfg apiConfig) getObjectURL(key string) string {
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
 }
 
+func (cfg apiConfig) getBucketKey(key string) string {
+	return fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
+}
+
 func (cfg apiConfig) getAssetDiskPath(assetPath string) string {
 	return filepath.Join(cfg.assetsRoot, assetPath)
 }
